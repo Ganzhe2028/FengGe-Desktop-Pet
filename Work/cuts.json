@@ -1,0 +1,101 @@
+[
+  {
+    "id": 1,
+    "original": "这是个好事(1).mp3",
+    "start": 0.04,
+    "end": 1.115,
+    "label": "这个是个好事",
+    "gain_db": 4.64,
+    "duration": 1.0750113378684807
+  },
+  {
+    "id": 2,
+    "original": "这是个好事(1).mp3",
+    "start": 1.115,
+    "end": 2.03,
+    "label": "这是个好事",
+    "gain_db": 6.17,
+    "duration": 0.9149886621315193
+  },
+  {
+    "id": 3,
+    "original": "这是个好事(1).mp3",
+    "start": 2.03,
+    "end": 3.685,
+    "label": "是个好事",
+    "gain_db": -5.83,
+    "duration": 1.6549886621315193
+  },
+  {
+    "id": 4,
+    "original": "这是个好事(1).mp3",
+    "start": 3.685,
+    "end": 4.775,
+    "label": "这是个好事啊",
+    "gain_db": -0.23,
+    "duration": 1.0900226757369615
+  },
+  {
+    "id": 5,
+    "original": "这是个好事(1).mp3",
+    "start": 4.775,
+    "end": 6.055,
+    "label": "这是一个好事啊",
+    "gain_db": -2.42,
+    "duration": 1.28
+  },
+  {
+    "id": 6,
+    "original": "这是个好事(1).mp3",
+    "start": 6.055,
+    "end": 7.14,
+    "label": "这是个好事啊",
+    "gain_db": 0.76,
+    "duration": 1.0849886621315192
+  },
+  {
+    "id": 7,
+    "original": "这是个好事(1).mp3",
+    "start": 7.14,
+    "end": 8.6465,
+    "label": "那这是个好事吗",
+    "gain_db": -8.5,
+    "duration": 1.5065079365079366
+  },
+  {
+    "id": 8,
+    "original": "10月22日 (1).mp3",
+    "start": 0.04,
+    "end": 0.91,
+    "label": "挺好的啊",
+    "gain_db": 3.78,
+    "duration": 0.87
+  },
+  {
+    "id": 9,
+    "original": "10月22日 (1).mp3",
+    "start": 0.91,
+    "end": 2.065,
+    "label": "这是个好事啊",
+    "gain_db": 5.12,
+    "duration": 1.1549886621315193
+  },
+  {
+    "id": 10,
+    "original": "10月22日 (1).mp3",
+    "start": 2.065,
+    "end": 3.0,
+    "label": "对你挺好的",
+    "gain_db": 9.29,
+    "duration": 0.9350113378684807
+  },
+  {
+    "id": 11,
+    "original": "10月22日 (1).mp3",
+    "start": 3.3,
+    "end": 4.7,
+    "label": "人有欲望是好事",
+    "gain_db": 3.83,
+    "duration": 1.4
+  }
+]

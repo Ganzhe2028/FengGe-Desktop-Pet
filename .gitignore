@@ -1,0 +1,11 @@
+build/
+好事桌宠-安装包.zip
+Tools/venv/
+Work/models/
+Work/AppIcon.iconset/
+Work/asr*.wav
+Work/check.wav
+Work/clip-check.json
+Work/preview.png
+Work/transcript.json
+.DS_Store
