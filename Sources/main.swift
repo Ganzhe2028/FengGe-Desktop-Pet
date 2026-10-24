@@ -131,13 +131,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AVAudioPlayerDelegate 
     var volume: Float = 0.65
     var size: CGFloat = 260
     var imageRatio: CGFloat = 1
-    // 捧哏联动：我说完一句，太对了接一句短的。
-    let bridge = PetBridge(me: .fengge, peers: [])
-    var bridgeStatus = "联动：只说不接"
+    // 捧哏联动：薄肌起头 → 太对了 → 峰哥 → 太对了。
+    // peers 是「我听谁」。峰哥只听太对了，而且只在薄肌起的链里接，见 startBridge。
+    let bridge = PetBridge(me: .fengge, peers: [.sunpet])
+    var bridgeStatus = "联动：接太对了"
+
+    // 接话要用的一整套。和太对了、薄肌那两份是同一套逻辑，只是入口条件不同。
+    var companionPool: [Clip] = []
+    var companionBag: [Clip] = []
+    var companionPlayers: [Int: AVAudioPlayer] = [:]
+    var companionLead: [Int: TimeInterval] = [:]
+    var companionWork: DispatchWorkItem?
+    let companionOverlap: TimeInterval = 0.3
     let selfTest = CommandLine.arguments.contains("--self-test")
     /// 联动自检：真播一句，看对面的桌宠会不会接。测通道用，正常使用不带这个参数。
     let bridgeTest = CommandLine.arguments.contains("--bridge-test")
     let defaults = UserDefaults.standard
+    /// --trace 时把联动每一跳的时间、跳数、重叠打到 stdout，用来核对四步链的节奏。
+    let trace = CommandLine.arguments.contains("--trace")
+    func traceLog(_ text: String) {
+        guard trace else { return }
+        print("[FENGGE] \(String(format: "%.3f", Date().timeIntervalSince1970)) \(text)")
+        fflush(stdout)
+    }
     var resources: URL { Bundle.main.resourceURL! }
     var panelSize: NSSize { NSSize(width: size, height: (size - 16) * imageRatio + 52) }
 
@@ -199,6 +215,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AVAudioPlayerDelegate 
         status.button?.toolTip = "好事桌宠 · 点击打开设置"
         status.button?.target = self; status.button?.action = #selector(openStatusMenu)
         updateToolTip()
+        // 11 句「这是个好事」全是纯反应，谁说话都能接，不用挑。
+        companionPool = clips
+        preloadCompanionClips()
         if selfTest { runSelfTest() } else if bridgeTest { startBridge(); runBridgeTest() } else { startBridge(); showCaption("点我说一句 · 右键设置", seconds: 5) }
     }
 
@@ -217,8 +236,96 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AVAudioPlayerDelegate 
     }
 
     func startBridge() {
-        // 只说不接：峰哥的话由太对了接，它自己不等任何人。
+        // 峰哥只在「薄肌起的头」里接话，这是 root 的用处：
+        //   薄肌(root=shaolan) → 太对了 → 峰哥 → 太对了
+        // 用户自己点峰哥时 root 是 fengge，接一句就停，不会把峰哥自己再带出来一次。
+        bridge.onSpoke = { [weak self] from, duration, _, _, hop, root in
+            guard let self else { return }
+            let willTake = from == .sunpet && root == .shaolan && hop < 3
+            let why = willTake ? "接" : (hop >= 3 ? "链到头了" : "不是薄肌起的头")
+            self.traceLog("收到 \(from.title) 的话 hop=\(hop) root=\(root.title) — \(why)")
+            guard from == .sunpet, root == .shaolan else { return }
+            self.scheduleCompanion(after: duration, hop: hop, root: root)
+        }
         bridge.start()
+        bridgeStatus = "联动：接太对了"
+    }
+
+    /// 上一环说完之后排一次接话。
+    func scheduleCompanion(after duration: TimeInterval, hop: Int, root: PetRole) {
+        guard !selfTest else { return }
+        // 链走到第四跳就收住：薄肌0 → 太对了1 → 峰哥2 → 太对了3 → 停
+        guard hop < 3 else { return }
+        companionWork?.cancel()
+        guard let clip = takeCompanionClip() else { return }
+        let lead = companionLead[clip.id] ?? 0
+        // 第二跳（太对了接完轮到峰哥）比默认压紧 0.1 秒，四步连起来才不拖。
+        let overlap = hop == 1 ? max(0.05, companionOverlap - 0.1) : companionOverlap
+        let delay = max(0.02, duration - overlap - lead)
+        traceLog("排接话 hop=\(hop) root=\(root.title) 重叠=\(String(format: "%.2f", overlap)) 等=\(String(format: "%.2f", delay)) 句=\(clip.id)")
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            // 自己正说着就不叠上去，这一捧算了。
+            guard self.player?.isPlaying != true else { return }
+            self.traceLog("开口 hop=\(hop + 1) 句=\(clip.id) \(clip.label)")
+            self.playCompanion(clip, hop: hop + 1, root: root)
+        }
+        companionWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    func takeCompanionClip() -> Clip? {
+        if companionBag.isEmpty { companionBag = companionPool.shuffled() }
+        return companionBag.popLast()
+    }
+
+    func playCompanion(_ clip: Clip, hop: Int, root: PetRole) {
+        // 用预解码好的 player 直接起播，绕过「读文件再解码」那几十毫秒。
+        if let ready = companionPlayers[clip.id] {
+            player?.stop()
+            player = ready
+            ready.currentTime = 0
+            ready.volume = volume
+            if ready.play() {
+                lastPlayed = clip.id
+                pet.animate(true)
+                showCaption(clip.label, seconds: ready.duration + 0.5)
+                if !selfTest { bridge.announceSpeaking(clipID: clip.id, duration: ready.duration, label: clip.label, hop: hop, root: root) }
+                return
+            }
+        }
+        play(clip, hop: hop, root: root)
+    }
+
+    func preloadCompanionClips() {
+        for clip in companionPool {
+            let url = resources.appendingPathComponent("Clips/\(clip.file)")
+            guard let audio = try? AVAudioPlayer(contentsOf: url) else { continue }
+            audio.delegate = self
+            audio.volume = volume
+            audio.prepareToPlay()
+            companionPlayers[clip.id] = audio
+            companionLead[clip.id] = leadingSilence(of: url)
+        }
+    }
+
+    /// 这句音频开头垫了多少静音。阈值按峰值的百分比取，免得把底噪当成人声。
+    func leadingSilence(of url: URL) -> TimeInterval {
+        guard let file = try? AVAudioFile(forReading: url) else { return 0 }
+        let rate = file.processingFormat.sampleRate
+        let want = AVAudioFrameCount(min(file.length, AVAudioFramePosition(rate * 0.6)))
+        guard want > 0, let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: want) else { return 0 }
+        do { try file.read(into: buffer) } catch { return 0 }
+        guard let channel = buffer.floatChannelData?[0] else { return 0 }
+        let count = Int(buffer.frameLength)
+        guard count > 0 else { return 0 }
+        var peak: Float = 0
+        for i in 0..<count { peak = max(peak, abs(channel[i])) }
+        let threshold = max(0.004, peak * 0.06)
+        for i in 0..<count where abs(channel[i]) > threshold {
+            return Double(i) / rate
+        }
+        return 0
     }
     func restorePosition() {
         if defaults.object(forKey: "petX") != nil {
@@ -302,14 +409,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AVAudioPlayerDelegate 
         guard let id = bag.next(from: ids), let clip = clips.first(where: { $0.id == id }) else { return }
         play(clip)
     }
-    func play(_ clip: Clip) {
+    func play(_ clip: Clip, hop: Int = 0, root: PetRole? = nil) {
         player?.stop(); pet.animate(false)
         do {
             let audio = try AVAudioPlayer(contentsOf: resources.appendingPathComponent("Clips/\(clip.file)"))
             player = audio; audio.delegate = self; audio.volume = volume; audio.prepareToPlay()
             guard audio.play() else { throw NSError(domain: "无法播放音频", code: 3) }
             lastPlayed = clip.id; pet.animate(true); showCaption(clip.label, seconds: audio.duration + 0.4)
-            if !selfTest { bridge.announceSpeaking(clipID: clip.id, duration: audio.duration, label: clip.label) }
+            if !selfTest { bridge.announceSpeaking(clipID: clip.id, duration: audio.duration, label: clip.label, hop: hop, root: root) }
         } catch { showCaption("这句暂时无法播放", seconds: 4) }
     }
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
@@ -397,6 +504,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AVAudioPlayerDelegate 
     }
 
     @objc func stopPlayback() {
+        companionWork?.cancel(); companionWork = nil
         player?.stop(); pet.animate(false); captionWork?.cancel(); pet.caption.isHidden = true
     }
     @objc func setVolume(_ sender: NSMenuItem) {
@@ -407,7 +515,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AVAudioPlayerDelegate 
         defaults.set(Double(size), forKey: "size"); savePosition()
     }
     @objc func quit() { NSApp.terminate(nil) }
-    func applicationWillTerminate(_ notification: Notification) { bridge.stop(); savePosition(); player?.stop(); pet?.animate(false) }
+    func applicationWillTerminate(_ notification: Notification) { bridge.stop(); companionWork?.cancel(); savePosition(); player?.stop(); pet?.animate(false) }
 
     func runSelfTest() {
         var failures: [String] = []
