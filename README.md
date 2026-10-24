@@ -16,25 +16,28 @@
 
 ## 安装方法
 
-需要 **Apple Silicon Mac** 和 **macOS 14 或更新版本**。
+需要 **Apple Silicon Mac** 和 **macOS 14 或更新版本**。运行应用本身不需要 Python、语音识别模型或网络连接。
 
-### 使用现成安装包
+### 方式一：下载安装包（推荐）
 
-1. 解压项目根目录的 `好事桌宠-安装包.zip`。
-2. 将解压得到的 `好事桌宠.app` 拖入“应用程序”文件夹。
-3. 在“应用程序”中打开“好事桌宠”。如果首次打开时 macOS 提示无法验证开发者，可右键应用并选择“打开”，按系统提示操作。该安装包使用本地签名。
+仓库不存放二进制文件，安装包在 [Releases](https://github.com/yuhanfu513-ops/FengGe-Desktop-Pet/releases) 页面。
 
-### 从源码构建
+1. 下载最新的 `GoodThingPet-x.y.dmg`，双击打开。
+2. 把「好事桌宠.app」拖进「应用程序」文件夹。
+3. 在「应用程序」里打开。应用使用本地签名、未经过 Apple 公证，首次打开会被 Gatekeeper 拦下：右键应用选「打开」，或在「系统设置 › 隐私与安全性」里点「仍要打开」。
 
-还需要安装 Xcode Command Line Tools，以提供 `swiftc`。在项目根目录运行：
+也可以下载 zip，但**要用 Finder 双击解压**。终端 `unzip` 处理 UTF-8 中文文件名会报 `write error (disk full?)` 并漏掉文件，这是 Info-ZIP 的老问题，不是包坏了。
+
+### 方式二：从源码构建
+
+需要 Xcode Command Line Tools 提供 `swiftc`，安装命令 `xcode-select --install`。在项目根目录运行：
 
 ```sh
-./build.sh
-./build/好事桌宠.app/Contents/MacOS/GoodThingPet --self-test
-open ./build/好事桌宠.app
+./build.sh          # 编译并在终端跑一遍自检，成功时最后一行输出 PASS
+./install.sh        # 装进「应用程序」、去掉隔离标记并启动
 ```
 
-构建产物位于 `build/好事桌宠.app`。自检成功时，最后一行输出 `PASS`。如需长期安装，可将该 `.app` 拖入“应用程序”。运行应用本身无需 Python、语音识别模型或网络连接。
+构建产物位于 `build/好事桌宠.app`，也可以手动拖进「应用程序」。要分发给别人时用 `./build.sh --package`，它会在 `dist/` 下产出 zip、dmg 和 sha256 校验文件。卸载运行 `./install.sh --uninstall`（位置、音量等设置会保留）。
 
 ## 使用方法
 
@@ -47,6 +50,17 @@ open ./build/好事桌宠.app
 | 菜单中选择“挑一句” | 立即播放选中的语句 |
 | 菜单中选择“停止播放” | 停止声音，并隐藏字幕、结束动画 |
 | 菜单中选择“退出桌宠” | 退出应用 |
+
+## 常见问题
+
+| 现象 | 原因和处理 |
+| --- | --- |
+| 双击应用没反应，Dock 里也没出现 | 已经有一个实例在跑。同一个应用只允许运行一个，第二次启动会静默退出。看菜单栏最右侧的「好事」。 |
+| 提示「已损坏，应移至废纸篓」或「无法验证开发者」 | 应用是本地签名、未经 Apple 公证，被 Gatekeeper 拦下。右键应用选「打开」，或在「系统设置 › 隐私与安全性」里点「仍要打开」。仍不行时在终端运行 `xattr -dr com.apple.quarantine /Applications/好事桌宠.app`。 |
+| 解压时提示 `write error (disk full?)`，文件少了一批 | 终端 `unzip` 处理中文文件名的老问题，磁盘其实没满。改用 Finder 双击解压，或 `ditto -x -k 包名.zip 目标目录`。 |
+| 点人物没有声音 | 菜单栏「好事」→「音量」检查是否静音，同时确认系统输出设备和音量。 |
+| 人物被拖到屏幕外，或换了显示器后找不回来 | 菜单栏「好事」→「移回屏幕右下角」。 |
+| 覆盖安装后打开还是旧版本 | 旧进程还在跑。`./install.sh` 会先退出旧进程再装。 |
 
 ## 输入与输出示例
 
@@ -70,7 +84,9 @@ open ./build/好事桌宠.app
 | `Assets/face.png` | 透明背景的人物图片 |
 | `Assets/Clips/` | 11 条切好的 WAV 音频 |
 | `Assets/clips.json` | 每条音频的编号、文字标签、文件名和时长 |
-| `Work/cuts.json`、`音频切分记录.md` | 原始录音与各句裁剪时间的对应关系 |
-| `build.sh` | 编译、打包素材并进行本地签名 |
+| `Work/cuts.json`、`Work/audio-cut-notes.md` | 原始录音与各句裁剪时间的对应关系 |
+| `build.sh` | 环境检查、编译、打包素材、本地签名、自检，`--package` 时产出分发包 |
+| `install.sh` | 装进「应用程序」、去掉下载隔离标记、启动；`--uninstall` 卸载 |
+| `.github/workflows/release.yml` | 打 `v*` 标签时自动构建并发布 zip、dmg 和校验文件 |
 
 本项目的代码和文档采用根目录 `LICENSE` 中的 MIT 许可。交互和播放设计参考了 SunPet，其原作者的 MIT 许可保留在 `LICENSE-SunPet` 中。人物图片和声音素材不属于这些代码许可范围。

@@ -1,0 +1,70 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "版本号（例如 1.2；仅在手动触发时使用）"
+        required: false
+        default: "1.1"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: 打印构建环境
+        run: |
+          sw_vers
+          uname -m
+          swiftc --version
+
+      - name: 计算版本号
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            version="${{ inputs.version }}"
+          else
+            version="${GITHUB_REF_NAME#v}"
+          fi
+          echo "PET_VERSION=$version" >> "$GITHUB_ENV"
+          echo "版本号：$version"
+
+      - name: 构建、自检并打包
+        run: ./build.sh --package
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v7
+        with:
+          name: good-thing-pet-${{ env.PET_VERSION }}
+          path: |
+            dist/*.zip
+            dist/*.dmg
+            dist/*.sha256
+
+      - name: 发布 Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v3
+        with:
+          files: |
+            dist/*.zip
+            dist/*.dmg
+            dist/*.sha256
+          body: |
+            下载 `GoodThingPet-*.dmg`，打开后把「好事桌宠.app」拖进「应用程序」。
+
+            也可以下载 zip，但请用 Finder 双击解压；终端 `unzip` 处理中文文件名会报 `write error (disk full?)` 并漏掉文件。
+
+            应用使用本地签名、未经公证，首次打开若被 Gatekeeper 拦下：右键应用选「打开」，或在「系统设置 › 隐私与安全性」里点「仍要打开」。装了 Xcode Command Line Tools 的话，`./install.sh --from /Applications/好事桌宠.app` 会自动处理这一步。
+
+            校验下载完整性：
+
+            ```sh
+            shasum -a 256 -c GoodThingPet-*.sha256
+            ```
