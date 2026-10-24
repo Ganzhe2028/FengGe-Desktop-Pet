@@ -55,7 +55,7 @@ compile() {
     rm -rf "$BUNDLE"
     mkdir -p "$BUNDLE/Contents/MacOS" "$BUNDLE/Contents/Resources"
     if ! swiftc -O -target "$DEPLOY_TARGET" -framework AppKit -framework AVFoundation \
-        Sources/main.swift -o "$BUNDLE/Contents/MacOS/$EXECUTABLE"; then
+        Sources/main.swift Sources/Bridge.swift -o "$BUNDLE/Contents/MacOS/$EXECUTABLE"; then
         die "swiftc 编译失败。请把上面的完整报错贴到 issue：
     https://github.com/yuhanfu513-ops/FengGe-Desktop-Pet/issues"
     fi

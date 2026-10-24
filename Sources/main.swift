@@ -9,14 +9,17 @@ struct Clip: Codable {
     let duration: Double
 }
 
+/// 一轮内不重复的随机池。
+/// 存 clip.id 而不是下标：轮播内容可以被勾掉，存下标的话池子一变就全错位。
 struct ShuffleBag {
     var remaining: [Int] = []
     var last: Int?
-    mutating func next(count: Int) -> Int? {
-        guard count > 0 else { return nil }
+    mutating func next(from ids: [Int]) -> Int? {
+        guard !ids.isEmpty else { return nil }
+        remaining.removeAll { !ids.contains($0) }
         if remaining.isEmpty {
-            remaining = Array(0..<count).shuffled()
-            if count > 1, remaining.last == last { remaining.swapAt(0, count - 1) }
+            remaining = ids.shuffled()
+            if ids.count > 1, remaining.last == last { remaining.swapAt(0, ids.count - 1) }
         }
         let value = remaining.removeLast()
         last = value
@@ -120,17 +123,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AVAudioPlayerDelegate 
     var clips: [Clip] = []
     var bag = ShuffleBag()
     var lastPlayed: Int?
+    var randomMode = true
+    var pinnedID: Int?
+    /// 从轮播里剔除的句子 id
+    var excludedIDs: Set<Int> = []
     var captionWork: DispatchWorkItem?
     var volume: Float = 0.65
     var size: CGFloat = 260
     var imageRatio: CGFloat = 1
+    // 捧哏联动：我说完一句，太对了接一句短的。
+    let bridge = PetBridge(me: .fengge, peers: [])
+    var bridgeStatus = "联动：只说不接"
     let selfTest = CommandLine.arguments.contains("--self-test")
+    /// 联动自检：真播一句，看对面的桌宠会不会接。测通道用，正常使用不带这个参数。
+    let bridgeTest = CommandLine.arguments.contains("--bridge-test")
     let defaults = UserDefaults.standard
     var resources: URL { Bundle.main.resourceURL! }
     var panelSize: NSSize { NSSize(width: size, height: (size - 16) * imageRatio + 52) }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        if !selfTest, let id = Bundle.main.bundleIdentifier {
+        // --dump-state 是诊断参数，不建窗口，不该被单实例检测挡掉
+        let dumpState = CommandLine.arguments.contains("--dump-state")
+        if !selfTest && !bridgeTest && !dumpState, let id = Bundle.main.bundleIdentifier {
             let others = NSRunningApplication.runningApplications(withBundleIdentifier: id).filter { $0.processIdentifier != getpid() }
             if !others.isEmpty { NSApp.terminate(nil); return }
         }
@@ -154,6 +168,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AVAudioPlayerDelegate 
         imageRatio = image.size.height / image.size.width
         if defaults.object(forKey: "volume") != nil { volume = min(max(defaults.float(forKey: "volume"), 0), 1) }
         if defaults.object(forKey: "size") != nil { size = min(max(CGFloat(defaults.double(forKey: "size")), 160), 400) }
+        if defaults.object(forKey: "randomMode") != nil { randomMode = defaults.bool(forKey: "randomMode") }
+        if defaults.object(forKey: "pinnedID") != nil { pinnedID = defaults.integer(forKey: "pinnedID") }
+        // 注意：defaults.array 拿回来是 [Any] 装 NSNumber，直接 as? [Int] 会失败，
+        // 必须逐项取 intValue。踩过：写进去了但读不出来。
+        if let raw = defaults.array(forKey: "excludedIDs") {
+            excludedIDs = Set(raw.compactMap { entry -> Int? in
+                if let number = entry as? NSNumber { return number.intValue }
+                if let text = entry as? String { return Int(text) }
+                return nil
+            })
+        }
+        if !randomMode && !pinValid() { randomMode = true }
+        if CommandLine.arguments.contains("--dump-state") {
+            let pin = pinnedID.map { String($0) } ?? "nil"
+            print("mode=\(randomMode ? "random" : "fixed") pinned=\(pin) valid=\(pinValid()) excluded=\(excludedIDs.sorted()) clips=\(clips.count) pool=\(clips.count - excludedIDs.count)")
+            exit(0)
+        }
         panel = PetPanel(contentRect: NSRect(origin: .zero, size: panelSize), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.title = "好事桌宠"
         panel.isOpaque = false; panel.backgroundColor = .clear; panel.hasShadow = false
@@ -167,7 +198,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AVAudioPlayerDelegate 
         status.button?.title = "好事"
         status.button?.toolTip = "好事桌宠 · 点击打开设置"
         status.button?.target = self; status.button?.action = #selector(openStatusMenu)
-        if selfTest { runSelfTest() } else { showCaption("点我说一句 · 右键设置", seconds: 5) }
+        updateToolTip()
+        if selfTest { runSelfTest() } else if bridgeTest { startBridge(); runBridgeTest() } else { startBridge(); showCaption("点我说一句 · 右键设置", seconds: 5) }
+    }
+
+    // MARK: - 捧哏联动
+
+    func runBridgeTest() {
+        showCaption("联动自检：3 秒后播一句", seconds: 3)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+            print("peer=\(self.bridge.peerIsRunning) status=\(self.bridgeStatus) clips=\(self.clips.count)")
+            fflush(stdout)
+            if let first = self.clips.first { self.play(first) }
+            print("spoke announced at \(Date().timeIntervalSince1970)")
+            fflush(stdout)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) { exit(0) }
+        }
+    }
+
+    func startBridge() {
+        // 只说不接：峰哥的话由太对了接，它自己不等任何人。
+        bridge.start()
     }
     func restorePosition() {
         if defaults.object(forKey: "petX") != nil {
@@ -202,7 +253,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AVAudioPlayerDelegate 
         let choose = item("挑一句", nil), choices = NSMenu()
         for clip in clips { choices.addItem(item(String(format: "%02d  %@", clip.id, clip.label), #selector(chooseClip(_:)), tag: clip.id)) }
         choose.submenu = choices; menu.addItem(choose)
+        let modeItem = item("播放方式", nil), modes = NSMenu()
+        let rand = item("随机一句（一轮不重复）", #selector(modeRandom)); rand.state = randomMode ? .on : .off; modes.addItem(rand)
+        let fix = item(modeTitle(), #selector(modeFixed)); fix.state = randomMode ? .off : .on; modes.addItem(fix)
+        modeItem.submenu = modes; menu.addItem(modeItem)
+        let filters = item("轮播内容", nil), filtersMenu = NSMenu()
+        let fhint = item("取消勾选＝不参与随机播", nil); fhint.isEnabled = false; filtersMenu.addItem(fhint); filtersMenu.addItem(.separator())
+        // 这里不能做成普通菜单项：菜单项点一下就整个关闭，取消十句得重开十次菜单。
+        // 换成真正的 NSButton 控件（menuItem.view），点控件不会关闭菜单，可以连着勾。
+        for clip in clips {
+            let box = NSButton(checkboxWithTitle: String(format: "%02d  %@", clip.id, clip.label),
+                               target: self, action: #selector(toggleExclusionBox(_:)))
+            box.tag = clip.id
+            box.state = excludedIDs.contains(clip.id) ? .off : .on
+            box.font = .systemFont(ofSize: 12)
+            box.sizeToFit()
+            let holder = NSMenuItem()
+            holder.view = box
+            filtersMenu.addItem(holder)
+        }
+        filtersMenu.addItem(.separator()); filtersMenu.addItem(item("全部恢复", #selector(enableAllClips)))
+        filters.submenu = filtersMenu; menu.addItem(filters)
         menu.addItem(item("停止播放", #selector(stopPlayback)))
+        menu.addItem(.separator())
+        let bridgeInfo = item(bridgeStatus, nil); bridgeInfo.isEnabled = false; menu.addItem(bridgeInfo)
         menu.addItem(.separator())
         let volumeItem = item("音量", nil), volumes = NSMenu()
         for value in [0, 25, 50, 65, 80, 100] {
@@ -222,8 +296,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AVAudioPlayerDelegate 
         return menu
     }
     @objc func playNext() {
-        guard let index = bag.next(count: clips.count) else { return }
-        play(clips[index])
+        // 固定模式：永远播钉住的那句，不轮播。
+        if !randomMode, let id = pinnedID, let clip = clips.first(where: { $0.id == id }) { play(clip); return }
+        let ids = clips.filter { !excludedIDs.contains($0.id) }.map(\.id)
+        guard let id = bag.next(from: ids), let clip = clips.first(where: { $0.id == id }) else { return }
+        play(clip)
     }
     func play(_ clip: Clip) {
         player?.stop(); pet.animate(false)
@@ -232,6 +309,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AVAudioPlayerDelegate 
             player = audio; audio.delegate = self; audio.volume = volume; audio.prepareToPlay()
             guard audio.play() else { throw NSError(domain: "无法播放音频", code: 3) }
             lastPlayed = clip.id; pet.animate(true); showCaption(clip.label, seconds: audio.duration + 0.4)
+            if !selfTest { bridge.announceSpeaking(clipID: clip.id, duration: audio.duration, label: clip.label) }
         } catch { showCaption("这句暂时无法播放", seconds: 4) }
     }
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
@@ -248,8 +326,76 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AVAudioPlayerDelegate 
         captionWork = work; DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
     }
     @objc func chooseClip(_ sender: NSMenuItem) {
-        if let clip = clips.first(where: { $0.id == sender.tag }) { play(clip) }
+        guard let clip = clips.first(where: { $0.id == sender.tag }) else { return }
+        if !randomMode { pinnedID = clip.id; defaults.set(clip.id, forKey: "pinnedID"); updateToolTip() }
+        play(clip)
     }
+    // MARK: - 播放方式与轮播内容
+
+    func pinValid() -> Bool {
+        guard let id = pinnedID else { return false }
+        return clips.contains { $0.id == id }
+    }
+    func modeTitle() -> String {
+        guard !randomMode, let id = pinnedID, let clip = clips.first(where: { $0.id == id }) else { return "固定播一句" }
+        return String(format: "固定播一句（%02d %@）", clip.id, clip.label)
+    }
+    func updateToolTip() {
+        let text = randomMode ? "点击随机播放一句 · 拖动移动 · 右键设置" : "点击播放固定那句 · 拖动移动 · 右键设置"
+        pet?.toolTip = text
+    }
+    @objc func modeRandom() { setMode(random: true) }
+    @objc func modeFixed() { setMode(random: false) }
+    func setMode(random: Bool) {
+        randomMode = random
+        if !random, !pinValid() { pinnedID = (clips.first(where: { $0.id == lastPlayed }) ?? clips.first)?.id }
+        defaults.set(random, forKey: "randomMode")
+        if let pin = pinnedID { defaults.set(pin, forKey: "pinnedID") }
+        updateToolTip()
+        if random {
+            showCaption("随机播放 · 一轮不重复", seconds: 3)
+        } else if let clip = clips.first(where: { $0.id == pinnedID }) {
+            showCaption(String(format: "已固定：%02d %@", clip.id, clip.label), seconds: 4)
+        }
+    }
+    /// 菜单里的复选框被点。菜单不会因此关闭，所以可以连着取消好几句。
+    @objc func toggleExclusionBox(_ sender: NSButton) {
+        let id = sender.tag
+        if excludedIDs.contains(id) {
+            excludedIDs.remove(id)
+        } else {
+            guard excludedIDs.count < clips.count - 1 else {
+                sender.state = .on
+                NSSound.beep()
+                return
+            }
+            excludedIDs.insert(id)
+        }
+        defaults.set(Array(excludedIDs), forKey: "excludedIDs")
+        bag.remaining.removeAll()
+    }
+
+    /// 勾掉某句：从随机轮播里剔除。至少留一句，否则随机就没东西可播。
+    @objc func toggleExclusion(_ sender: NSMenuItem) {
+        let id = sender.tag
+        if excludedIDs.contains(id) {
+            excludedIDs.remove(id)
+        } else {
+            guard excludedIDs.count < clips.count - 1 else {
+                showCaption("至少留一句在轮播里", seconds: 3)
+                return
+            }
+            excludedIDs.insert(id)
+        }
+        defaults.set(Array(excludedIDs), forKey: "excludedIDs")
+        showCaption("轮播里还有 \(clips.count - excludedIDs.count) 句", seconds: 2)
+    }
+    @objc func enableAllClips() {
+        excludedIDs.removeAll()
+        defaults.set([Int](), forKey: "excludedIDs")
+        showCaption("轮播已恢复全部", seconds: 2)
+    }
+
     @objc func stopPlayback() {
         player?.stop(); pet.animate(false); captionWork?.cancel(); pet.caption.isHidden = true
     }
@@ -261,7 +407,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AVAudioPlayerDelegate 
         defaults.set(Double(size), forKey: "size"); savePosition()
     }
     @objc func quit() { NSApp.terminate(nil) }
-    func applicationWillTerminate(_ notification: Notification) { savePosition(); player?.stop(); pet?.animate(false) }
+    func applicationWillTerminate(_ notification: Notification) { bridge.stop(); savePosition(); player?.stop(); pet?.animate(false) }
 
     func runSelfTest() {
         var failures: [String] = []
@@ -278,13 +424,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AVAudioPlayerDelegate 
             } catch { check(false, "audio \(clip.id)") }
         }
         var testBag = ShuffleBag(), previous: Int?
+        let allIDs = clips.map(\.id)
         var randomOK = true
         for _ in 0..<100 {
             var cycle: [Int] = []
             for _ in clips {
-                let index = testBag.next(count: clips.count)!
-                if clips.count > 1 && previous == index { randomOK = false }
-                previous = index; cycle.append(index)
+                let id = testBag.next(from: allIDs)!
+                if clips.count > 1 && previous == id { randomOK = false }
+                previous = id; cycle.append(id)
             }
             if Set(cycle).count != clips.count { randomOK = false }
         }
@@ -301,7 +448,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AVAudioPlayerDelegate 
         let drag = NSEvent.mouseEvent(with: .leftMouseDragged, location: NSPoint(x: 30, y: 20), modifierFlags: [], timestamp: 1, windowNumber: panel.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1)!
         pet.mouseDragged(with: drag); pet.mouseUp(with: drag)
         check(pet.dragged && lastPlayed == beforeDrag, "drag moves without playing a new clip")
+
+        // 固定模式：每次触发都必须播钉住的那句，不能漂到别的句子
+        let savedMode = randomMode, savedPin = pinnedID, savedExcluded = excludedIDs
+        randomMode = false
+        pinnedID = clips.count > 2 ? clips[2].id : clips.first?.id
+        var pinnedOK = true
+        for _ in 0..<6 {
+            playNext()
+            if lastPlayed != pinnedID { pinnedOK = false }
+        }
+        check(pinnedOK, "fixed mode always replays the pinned clip")
+
+        // 排除：勾掉的句子绝不出现在随机里
+        randomMode = true
+        excludedIDs = Set(clips.prefix(2).map(\.id))
+        var excludedOK = true
+        for _ in 0..<40 {
+            playNext()
+            if let id = lastPlayed, excludedIDs.contains(id) { excludedOK = false }
+        }
+        check(excludedOK, "excluded clips never play in random mode")
+
+        randomMode = savedMode; pinnedID = savedPin; excludedIDs = savedExcluded
         check(makeMenu().items.first(where: { $0.title == "挑一句" })?.submenu?.items.count == clips.count, "all clips in context menu")
+        // 轮播内容必须是真控件（menuItem.view），普通菜单项点了会关菜单，没法连着勾
+        let filterBoxes = makeMenu().items.first(where: { $0.title == "轮播内容" })?.submenu?.items.compactMap { $0.view as? NSButton } ?? []
+        check(filterBoxes.count == clips.count && filterBoxes.allSatisfy { !$0.title.isEmpty && $0.action != nil }, "rotation list uses real checkboxes")
         stopPlayback()
         check(player?.isPlaying == false && !pet.speaking && pet.caption.isHidden, "stop clears audio, animation and caption")
         if let i = CommandLine.arguments.firstIndex(of: "--preview"), i + 1 < CommandLine.arguments.count {
