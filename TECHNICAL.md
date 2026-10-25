@@ -121,4 +121,13 @@
 | `install.sh` | 装进「应用程序」、去掉下载隔离标记、启动；`--uninstall` 卸载 |
 | `.github/workflows/release.yml` | 打 `v*` 标签时自动构建并发布 zip、dmg 和校验文件 |
 
-本项目的代码和文档采用根目录 `LICENSE` 中的 MIT 许可。初版来自 [yuhanfu513-ops/FengGe-Desktop-Pet](https://github.com/yuhanfu513-ops/FengGe-Desktop-Pet)，本仓库在此基础上继续开发。交互和播放设计参考了 SunPet，其原作者的 MIT 许可保留在 `LICENSE-SunPet` 中。人物图片和声音素材不属于这些代码许可范围。
+本项目的代码和文档采用根目录 `LICENSE` 中的 MIT 许可。初版来自 [yuhanfu513-ops/FengGe-Desktop-Pet](https://github.com/yuhanfu513-ops/FengGe-Desktop-Pet)，本仓库在此基础上继续开发。交互和播放设计参考了 SunPet，其原作者的 MIT 许可保留在 [`licenses/SunPet-MIT.txt`](licenses/SunPet-MIT.txt) 中。人物图片和声音素材不属于这些代码许可范围。
+
+## 加第四个人
+
+三个仓库是同一份代码的复制品，加角色就是复制这个模式：
+
+1. `Sources/Bridge.swift` 的 `PetRole` 枚举加一个 case，值是新角色的 bundle id，`displayName` 里补中文名。
+2. `peers` 表决定「我听谁」。现在三份是各自硬编码的：想让它接谁的话，就把谁加进去；只说不接的角色 peers 留空。
+3. `Bridge.swift` 三个仓库逐字节相同（md5 一致），改一处就要三处同步，否则联动会半通。
+4. 新仓库直接复制任意一个，换掉 `Assets/` 里的音频、`clips.json`、`face.png` 和 bundle id，`./build.sh --package` 出安装包。
