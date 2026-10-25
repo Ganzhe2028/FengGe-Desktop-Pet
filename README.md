@@ -117,4 +117,4 @@
 | `install.sh` | 装进「应用程序」、去掉下载隔离标记、启动；`--uninstall` 卸载 |
 | `.github/workflows/release.yml` | 打 `v*` 标签时自动构建并发布 zip、dmg 和校验文件 |
 
-本项目的代码和文档采用根目录 `LICENSE` 中的 MIT 许可。交互和播放设计参考了 SunPet，其原作者的 MIT 许可保留在 `LICENSE-SunPet` 中。人物图片和声音素材不属于这些代码许可范围。
+本项目的代码和文档采用根目录 `LICENSE` 中的 MIT 许可。初版来自 [yuhanfu513-ops/FengGe-Desktop-Pet](https://github.com/yuhanfu513-ops/FengGe-Desktop-Pet)，本仓库在此基础上继续开发。交互和播放设计参考了 SunPet，其原作者的 MIT 许可保留在 `LICENSE-SunPet` 中。人物图片和声音素材不属于这些代码许可范围。
