@@ -21,7 +21,7 @@
 
 ### 方式一：下载安装包（推荐）
 
-仓库不存放二进制文件，安装包在 [Releases](https://github.com/yuhanfu513-ops/FengGe-Desktop-Pet/releases) 页面。
+仓库不存放二进制文件，安装包在 [Releases](https://github.com/Ganzhe2028/FengGe-Desktop-Pet/releases) 页面。
 
 1. 下载最新的 `GoodThingPet-x.y.dmg`，双击打开。
 2. 把「好事桌宠.app」拖进「应用程序」文件夹。
@@ -62,7 +62,7 @@
 
 | 桌宠 | 说什么 | 在联动里的位置 |
 | --- | --- | --- |
-| [好事桌宠](https://github.com/yuhanfu513-ops/FengGe-Desktop-Pet) | 峰哥 · 11 句「这是个好事」 | 接太对了的话，但只在薄肌起的链里 |
+| [好事桌宠](https://github.com/Ganzhe2028/FengGe-Desktop-Pet) | 峰哥 · 11 句「这是个好事」 | 接太对了的话，但只在薄肌起的链里 |
 | [太对了 · SunPet](https://github.com/Ganzhe2028/SunPet) | 孙宇晨 · 28 句「太对了」 | 谁说话都接 |
 | [薄肌桌宠](https://github.com/Ganzhe2028/ShaolanPet) | 邵艾伦 · 37 句 | 起头，自己不接 |
 
